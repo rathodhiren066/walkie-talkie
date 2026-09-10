@@ -1,137 +1,116 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>Walkie Talkie - Fixed 7777</title>
-<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Walkie Talkie</title>
 <style>
-  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-  body{font-family:system-ui,sans-serif;text-align:center;background:#0f0f0f;color:#fff;padding:0;margin:0;padding-top:env(safe-area-inset-top)}
- .top-safe{height:32px;width:100%}
- .content{padding:0 16px 16px}
-  #idBox{font-size:42px;font-weight:900;color:#00ff88;background:#1e1e1e;padding:16px;border-radius:16px;margin:12px auto;max-width:320px;letter-spacing:6px;user-select:all;border:2px dashed #333}
-  button{width:92%;max-width:340px;height:85px;font-size:20px;font-weight:800;border-radius:16px;border:none;margin:10px;cursor:pointer}
-  #connectBtn{background:#fff;color:#000}
-  #talkBtn{background:#d90429;color:#fff;touch-action:none;user-select:none;transition:0.1s}
-  #talkBtn.talking{background:#2ec400;transform:scale(0.97)}
-  input{padding:16px;font-size:28px;width:88%;max-width:320px;border-radius:12px;border:2px solid #333;background:#1e1e1e;color:#fff;text-align:center;outline:none;letter-spacing:8px;font-weight:800}
-  #status{font-size:18px;margin:16px;color:#aaa;min-height:24px}
- .label{color:#888;font-size:14px;margin-top:18px;text-transform:uppercase;letter-spacing:1px}
-  .shareBox{background:#1a1a1a;padding:12px;border-radius:12px;margin:10px auto;max-width:340px;word-break:break-all;font-size:13px;color:#aaa}
+body{font-family:sans-serif;background:#0f0f0f;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;text-align:center}
+#status{margin:20px 0;font-size:18px;color:#00ff88;font-weight:bold}
+#roomBox{background:#1f1f1f;padding:12px 16px;border-radius:10px;width:90%;max-width:400px;word-break:break-all;font-size:13px;color:#aaa}
+#talkBtn{width:200px;height:200px;border-radius:50%;border:none;background:#ff3b30;color:white;font-size:22px;font-weight:bold;margin-top:25px;box-shadow:0 0 30px #ff3b3077;touch-action:none}
+#talkBtn:active,#talkBtn.talking{background:#00ff66;box-shadow:0 0 50px #00ff66cc;color:#000;transform:scale(1.05)}
+.shareBtn{margin-top:20px;padding:14px 28px;background:#fff;color:#000;border:none;border-radius:10px;font-weight:bold;font-size:16px}
+small{color:#666;margin-top:15px;display:block}
 </style>
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
-<div class="top-safe"></div>
-<h2 style="margin:8px 0">Walkie Talkie</h2>
-<p style="color:#888;margin:0">Your Fixed ID is 7777</p>
-<div class="content">
-<div class="label">Your ID</div>
-<div id="idBox">7777</div>
+<h2>🔊 WALKIE TALKIE</h2>
+<div id="status">Starting Mic...</div>
+<div id="roomBox"></div>
+<button id="talkBtn">HOLD<br>TO TALK</button>
+<button class="shareBtn" onclick="copyLink()">📋 Copy Link & Send to Friend</button>
+<small>Tip: Link copy karo, WhatsApp pe paste karo. Share sheet mat kholo.</small>
 
-<div class="shareBox" id="shareBox"></div>
-
-<label class="label" for="otherId">Enter Friend's 4 Digits</label>
-<input id="otherId" type="tel" inputmode="numeric" maxlength="4" placeholder="----">
-<br>
-<button id="connectBtn" onclick="connectToFriend()">CONNECT</button>
-<br>
-<button id="talkBtn">HOLD TO TALK</button>
-<p id="status">Ready...</p>
-<audio id="remoteAudio" autoplay playsinline></audio>
-</div>
 <script>
-let urlParams = new URLSearchParams(window.location.search);
-let myId = urlParams.get('id') || "7777";
-let joinId = urlParams.get('join');
-
-document.getElementById('idBox').innerText = myId;
-if(joinId){ document.getElementById('otherId').value = joinId; }
-
-let shareLink = `${window.location.origin}${window.location.pathname}?join=${myId}`;
-document.getElementById('shareBox').innerHTML = `Share this link to your friend:<br><b style="color:#00ff88">${shareLink}</b><br><br><button onclick="navigator.clipboard.writeText('${shareLink}');alert('Link Copied!')" style="height:40px;font-size:14px;background:#00ff88;color:#000;">COPY FRIEND LINK</button>`;
-
-let peer = new Peer(myId, {debug:1});
-let localStream = null;
-let currentCall = null;
-let isTalking = false;
-let remoteAudio = document.getElementById('remoteAudio');
-remoteAudio.volume = 1;
-let audioCtx = null;
-function getAudioCtx(){ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }
-function beep(f,d){ getAudioCtx(); let o=audioCtx.createOscillator(),g=audioCtx.createGain(); o.frequency.value=f; o.connect(g); g.connect(audioCtx.destination); g.gain.setValueAtTime(1,audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+d); o.start(); o.stop(audioCtx.currentTime+d); }
-function beepOn(){ beep(1000,0.12); setTimeout(()=>beep(1500,0.15),90); }
-function beepOff(){ beep(450,0.25); }
-function beepConnected(){ beep(600,0.1); setTimeout(()=>beep(900,0.1),120); setTimeout(()=>beep(1200,0.2),240); }
-
-async function ensureMic(){
-  if(localStream) return localStream;
-  document.getElementById('status').innerText = "Requesting mic...";
-  try{
-    localStream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true, channelCount:1 } });
-    localStream.getAudioTracks().forEach(t => t.enabled = false);
-    document.getElementById('status').innerText = "Mic Ready! Press CONNECT.";
-    getAudioCtx();
-    return localStream;
-  }catch(e){ document.getElementById('status').innerText = "Allow Mic and reload"; throw e; }
+let roomId = new URLSearchParams(location.search).get('room');
+if(!roomId){
+  roomId = Math.floor(1000 + Math.random()*9000).toString();
+  location.replace('?room='+roomId);
 }
+const roomLink = location.origin + location.pathname + '?room=' + roomId;
+document.getElementById('roomBox').innerText = roomLink;
 
-function createPeer(id){
-  peer = new Peer(id);
-  peer.on('open', ()=>{ 
-    let msg = joinId ? `Ready! Friend ID ${joinId} auto-filled. Press CONNECT` : `Ready! Your ID is ${id}. Share friend link.`;
-    document.getElementById('status').innerText = msg; 
-  });
-  peer.on('error', (err)=>{
-    if(err.type==='unavailable-id'){ document.getElementById('status').innerText = "ID 7777 is busy. Try again in 10 sec or use ?id=1234"; }
-    else if(err.type==='peer-unavailable'){ document.getElementById('status').innerText = "Friend ID not online. Ask friend to open link first."; }
-    else { document.getElementById('status').innerText = "Error: "+err.type; }
-  });
-  peer.on('call', async (call)=>{ try{ await ensureMic(); call.answer(localStream); handleCall(call); }catch{} });
-}
-createPeer(myId);
-
-function handleCall(call){
-  currentCall = call;
-  document.getElementById('status').innerText = "Connected! Hold to Talk.";
-  beepConnected();
-  call.on('stream', async (remoteStream)=>{
-    remoteAudio.srcObject = remoteStream;
-    try{ await remoteAudio.play(); }catch(e){}
-    document.getElementById('status').innerText = "Audio Live! Hold to Talk.";
-  });
-}
-
-async function connectToFriend(){
-  let otherId = document.getElementById('otherId').value.trim();
-  if(otherId.length!==4){ alert("Enter 4 digits"); return; }
-  try{
-    await ensureMic();
-    document.getElementById('status').innerText = "Connecting to "+otherId+"...";
-    try{ await remoteAudio.play(); }catch{}
-    let call = peer.call(otherId, localStream);
-    if(!call){ document.getElementById('status').innerText = "ID not found"; return; }
-    handleCall(call);
-  }catch(e){ document.getElementById('status').innerText = "Failed"; }
-}
-
+let peer, conn, localStream, wakeLock = null;
+const statusEl = document.getElementById('status');
 const talkBtn = document.getElementById('talkBtn');
-function startTalking(){
-  if(!localStream){ ensureMic(); return; }
-  if(isTalking) return;
-  localStream.getAudioTracks().forEach(t => t.enabled = true);
-  isTalking = true; talkBtn.classList.add('talking'); talkBtn.innerText = "TALKING..."; beepOn(); if(navigator.vibrate) navigator.vibrate(50);
+const hostId = 'walkie-room-' + roomId;
+
+async function enableWakeLock(){
+  try{ if('wakeLock' in navigator){ wakeLock = await navigator.wakeLock.request('screen'); } }catch(e){}
 }
-function stopTalking(){
-  if(!localStream || !isTalking) return;
-  localStream.getAudioTracks().forEach(t => t.enabled = false);
-  isTalking = false; talkBtn.classList.remove('talking'); talkBtn.innerText = "HOLD TO TALK"; beepOff(); if(navigator.vibrate) navigator.vibrate([30,40,30]);
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'visible'){ enableWakeLock(); if(!conn ||!conn.open){ setTimeout(connectAgain, 1000); } }
+});
+
+async function init(){
+  try{
+    localStream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+    localStream.getAudioTracks()[0].enabled = false;
+    enableWakeLock();
+    startAsHost();
+  }catch(e){ statusEl.innerText = "❌ Mic Permission Do: " + e.message; }
 }
-talkBtn.addEventListener('pointerdown', (e)=>{ e.preventDefault(); talkBtn.setPointerCapture(e.pointerId); startTalking(); });
-talkBtn.addEventListener('pointerup', (e)=>{ e.preventDefault(); stopTalking(); });
-talkBtn.addEventListener('pointercancel', stopTalking);
-talkBtn.addEventListener('lostpointercapture', stopTalking);
-document.body.addEventListener('click', async ()=>{ getAudioCtx(); try{ await remoteAudio.play(); }catch{} }, {once:true});
+
+function startAsHost(){
+  statusEl.innerText = "Room "+roomId+" - Waiting...";
+  peer = new Peer(hostId);
+  peer.on('open', ()=>{ statusEl.innerText = "✅ You are Host ("+roomId+"). Link friend ko bhejo"; });
+  peer.on('error', err=>{
+    if(err.type === 'unavailable-id'){ peer.destroy(); joinAsGuest(); }
+    else { statusEl.innerText = "Error: " + err.type; }
+  });
+  peer.on('connection', c=>{ conn=c; setupConn(); });
+  peer.on('call', call=>{ call.answer(localStream); call.on('stream', playAudio); });
+}
+
+function joinAsGuest(){
+  statusEl.innerText = "Room "+roomId+" me join ho rahe ho...";
+  peer = new Peer();
+  peer.on('open', ()=>{
+    conn = peer.connect(hostId, {reliable:true});
+    setupConn();
+    setTimeout(()=>{ const call = peer.call(hostId, localStream); call.on('stream', playAudio); }, 500);
+  });
+  peer.on('error', ()=>{ statusEl.innerText = "Retrying..."; setTimeout(connectAgain, 2000); });
+}
+
+function setupConn(){
+  if(!conn) return;
+  conn.on('open', ()=>{ statusEl.innerText = "✅ CONNECTED! Hold to talk"; });
+  conn.on('close', ()=>{ statusEl.innerText = "⚠️ Disconnected. Reconnecting..."; setTimeout(connectAgain, 2000); });
+  conn.on('error', ()=>{ setTimeout(connectAgain, 2000); });
+}
+
+function connectAgain(){
+  if(peer) try{peer.destroy()}catch(e){}
+  if(document.visibilityState === 'visible'){ startAsHost(); }
+}
+
+function playAudio(stream){
+  const audio = new Audio();
+  audio.srcObject = stream;
+  audio.autoplay = true;
+  audio.playsInline = true;
+  audio.play().catch(()=>{});
+}
+
+function copyLink(){
+  navigator.clipboard.writeText(roomLink).then(()=>{
+    alert('Link Copied! ✅\n'+roomLink);
+  });
+}
+
+function startTalk(){ if(localStream) localStream.getAudioTracks()[0].enabled = true; talkBtn.classList.add('talking'); statusEl.innerText="🔴 Talking..."; }
+function stopTalk(){ if(localStream) localStream.getAudioTracks()[0].enabled = false; talkBtn.classList.remove('talking'); statusEl.innerText="✅ Connected - Listening..."; }
+
+talkBtn.addEventListener('touchstart', e=>{e.preventDefault(); startTalk();}, {passive:false});
+talkBtn.addEventListener('touchend', e=>{e.preventDefault(); stopTalk();}, {passive:false});
+talkBtn.addEventListener('mousedown', startTalk);
+talkBtn.addEventListener('mouseup', stopTalk);
+talkBtn.addEventListener('mouseleave', stopTalk);
+
+init();
 </script>
 </body>
 </html>
