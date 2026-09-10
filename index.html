@@ -7,10 +7,9 @@
 body{font-family:sans-serif;background:#0f0f0f;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;text-align:center}
 #status{margin:20px 0;font-size:18px;color:#00ff88;font-weight:bold}
 #roomBox{background:#1f1f1f;padding:12px 16px;border-radius:10px;width:90%;max-width:400px;word-break:break-all;font-size:13px;color:#aaa}
-#talkBtn{width:200px;height:200px;border-radius:50%;border:none;background:#ff3b30;color:white;font-size:22px;font-weight:bold;margin-top:25px;box-shadow:0 0 30px #ff3b3077;touch-action:none}
+#talkBtn{width:200px;height:200px;border-radius:50%;border:none;background:#ff3b30;color:white;font-size:22px;font-weight:bold;margin-top:25px;box-shadow:0 0 30px #ff3b3077;touch-action:none;user-select:none}
 #talkBtn:active,#talkBtn.talking{background:#00ff66;box-shadow:0 0 50px #00ff66cc;color:#000;transform:scale(1.05)}
 .shareBtn{margin-top:20px;padding:14px 28px;background:#fff;color:#000;border:none;border-radius:10px;font-weight:bold;font-size:16px}
-small{color:#666;margin-top:15px;display:block}
 </style>
 <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
@@ -18,97 +17,99 @@ small{color:#666;margin-top:15px;display:block}
 <h2>🔊 WALKIE TALKIE</h2>
 <div id="status">Starting Mic...</div>
 <div id="roomBox"></div>
-<button id="talkBtn">HOLD<br>TO TALK</button>
-<button class="shareBtn" onclick="copyLink()">📋 Copy Link & Send to Friend</button>
-<small>Tip: Link copy karo, WhatsApp pe paste karo. Share sheet mat kholo.</small>
+
+<!-- FIX 1: accessibility ke liye role aur label lagaya -->
+<button id="talkBtn" aria-label="Hold to Talk, Double tap and hold to speak" aria-pressed="false">HOLD<br>TO TALK</button>
+
+<button class="shareBtn" onclick="copyLink()">📋 Copy Link</button>
 
 <script>
 let roomId = new URLSearchParams(location.search).get('room');
-if(!roomId){
-  roomId = Math.floor(1000 + Math.random()*9000).toString();
-  location.replace('?room='+roomId);
-}
+if(!roomId){ roomId = Math.floor(1000 + Math.random()*9000).toString(); location.replace('?room='+roomId); }
 const roomLink = location.origin + location.pathname + '?room=' + roomId;
 document.getElementById('roomBox').innerText = roomLink;
 
-let peer, conn, localStream, wakeLock = null;
+let peer, conn, localStream, audioCtx;
 const statusEl = document.getElementById('status');
 const talkBtn = document.getElementById('talkBtn');
 const hostId = 'walkie-room-' + roomId;
 
-async function enableWakeLock(){
-  try{ if('wakeLock' in navigator){ wakeLock = await navigator.wakeLock.request('screen'); } }catch(e){}
+// FIX 2: Beep sound function - blind ke liye
+function beep(freq, duration){
+  try{
+    if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.frequency.value = freq;
+    o.connect(g); g.connect(audioCtx.destination);
+    o.start();
+    g.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
+    setTimeout(()=>o.stop(), duration*1000);
+  }catch(e){}
 }
-document.addEventListener('visibilitychange', ()=>{
-  if(document.visibilityState === 'visible'){ enableWakeLock(); if(!conn ||!conn.open){ setTimeout(connectAgain, 1000); } }
-});
 
 async function init(){
   try{
     localStream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
     localStream.getAudioTracks()[0].enabled = false;
-    enableWakeLock();
     startAsHost();
-  }catch(e){ statusEl.innerText = "❌ Mic Permission Do: " + e.message; }
+  }catch(e){ statusEl.innerText = "Mic Permission Do"; }
 }
 
 function startAsHost(){
-  statusEl.innerText = "Room "+roomId+" - Waiting...";
+  statusEl.innerText = "Room "+roomId+" Ready";
   peer = new Peer(hostId);
-  peer.on('open', ()=>{ statusEl.innerText = "✅ You are Host ("+roomId+"). Link friend ko bhejo"; });
-  peer.on('error', err=>{
-    if(err.type === 'unavailable-id'){ peer.destroy(); joinAsGuest(); }
-    else { statusEl.innerText = "Error: " + err.type; }
-  });
+  peer.on('error', err=>{ if(err.type === 'unavailable-id'){ peer.destroy(); joinAsGuest(); }});
   peer.on('connection', c=>{ conn=c; setupConn(); });
   peer.on('call', call=>{ call.answer(localStream); call.on('stream', playAudio); });
 }
-
 function joinAsGuest(){
-  statusEl.innerText = "Room "+roomId+" me join ho rahe ho...";
+  statusEl.innerText = "Joining Room "+roomId;
   peer = new Peer();
   peer.on('open', ()=>{
-    conn = peer.connect(hostId, {reliable:true});
-    setupConn();
+    conn = peer.connect(hostId, {reliable:true}); setupConn();
     setTimeout(()=>{ const call = peer.call(hostId, localStream); call.on('stream', playAudio); }, 500);
   });
-  peer.on('error', ()=>{ statusEl.innerText = "Retrying..."; setTimeout(connectAgain, 2000); });
 }
-
 function setupConn(){
   if(!conn) return;
-  conn.on('open', ()=>{ statusEl.innerText = "✅ CONNECTED! Hold to talk"; });
-  conn.on('close', ()=>{ statusEl.innerText = "⚠️ Disconnected. Reconnecting..."; setTimeout(connectAgain, 2000); });
-  conn.on('error', ()=>{ setTimeout(connectAgain, 2000); });
+  conn.on('open', ()=>{ statusEl.innerText = "CONNECTED! Hold to talk"; beep(1000, 0.2); });
 }
-
-function connectAgain(){
-  if(peer) try{peer.destroy()}catch(e){}
-  if(document.visibilityState === 'visible'){ startAsHost(); }
-}
-
 function playAudio(stream){
-  const audio = new Audio();
-  audio.srcObject = stream;
-  audio.autoplay = true;
-  audio.playsInline = true;
-  audio.play().catch(()=>{});
+  const audio = new Audio(); audio.srcObject = stream; audio.autoplay = true; audio.playsInline = true; audio.play().catch(()=>{});
+}
+function copyLink(){ navigator.clipboard.writeText(roomLink).then(()=>alert('Link Copied: '+roomLink)); }
+
+// FIX 3: Yahi main fix hai - pehle sirf touch tha, ab pointer + keyboard + TalkBack sab kaam karega
+let isTalking = false;
+function startTalk(){
+  if(isTalking) return;
+  isTalking = true;
+  if(localStream) localStream.getAudioTracks()[0].enabled = true;
+  talkBtn.classList.add('talking');
+  talkBtn.setAttribute('aria-pressed','true');
+  statusEl.innerText="🔴 Talking... Release to Send";
+  beep(800, 0.15); // ON beep - tez
+}
+function stopTalk(){
+  if(!isTalking) return;
+  isTalking = false;
+  if(localStream) localStream.getAudioTracks()[0].enabled = false;
+  talkBtn.classList.remove('talking');
+  talkBtn.setAttribute('aria-pressed','false');
+  statusEl.innerText="✅ Listening...";
+  beep(400, 0.25); // OFF beep - halki
 }
 
-function copyLink(){
-  navigator.clipboard.writeText(roomLink).then(()=>{
-    alert('Link Copied! ✅\n'+roomLink);
-  });
-}
+// Ye 4 event sab device pe kaam karte hai, TalkBack ke sath bhi
+talkBtn.addEventListener('pointerdown', (e)=>{ e.preventDefault(); startTalk(); });
+talkBtn.addEventListener('pointerup', (e)=>{ e.preventDefault(); stopTalk(); });
+talkBtn.addEventListener('pointercancel', stopTalk);
+talkBtn.addEventListener('pointerleave', stopTalk);
 
-function startTalk(){ if(localStream) localStream.getAudioTracks()[0].enabled = true; talkBtn.classList.add('talking'); statusEl.innerText="🔴 Talking..."; }
-function stopTalk(){ if(localStream) localStream.getAudioTracks()[0].enabled = false; talkBtn.classList.remove('talking'); statusEl.innerText="✅ Connected - Listening..."; }
-
-talkBtn.addEventListener('touchstart', e=>{e.preventDefault(); startTalk();}, {passive:false});
-talkBtn.addEventListener('touchend', e=>{e.preventDefault(); stopTalk();}, {passive:false});
-talkBtn.addEventListener('mousedown', startTalk);
-talkBtn.addEventListener('mouseup', stopTalk);
-talkBtn.addEventListener('mouseleave', stopTalk);
+// Blind user keyboard se Space dabake bhi bol payega
+talkBtn.addEventListener('keydown', (e)=>{ if(e.code==='Space' || e.code==='Enter'){ e.preventDefault(); startTalk(); }});
+talkBtn.addEventListener('keyup', (e)=>{ if(e.code==='Space' || e.code==='Enter'){ e.preventDefault(); stopTalk(); }});
 
 init();
 </script>
