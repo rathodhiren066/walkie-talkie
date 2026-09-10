@@ -3,47 +3,53 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
-<title>Walkie Talkie - Fixed Voice</title>
+<title>Walkie Talkie - Fixed 7777</title>
 <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 <style>
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   body{font-family:system-ui,sans-serif;text-align:center;background:#0f0f0f;color:#fff;padding:0;margin:0;padding-top:env(safe-area-inset-top)}
  .top-safe{height:32px;width:100%}
  .content{padding:0 16px 16px}
-  #idBox{font-size:42px;font-weight:900;color:#00ff88;background:#1e1e1e;padding:16px;border-radius:16px;margin:12px auto;max-width:320px;letter-spacing:6px;user-select:all;-webkit-user-select:all;border:2px dashed #333}
-  button{width:92%;max-width:340px;height:85px;font-size:20px;font-weight:800;border-radius:16px;border:none;margin:10px;cursor:pointer;touch-action:manipulation}
+  #idBox{font-size:42px;font-weight:900;color:#00ff88;background:#1e1e1e;padding:16px;border-radius:16px;margin:12px auto;max-width:320px;letter-spacing:6px;user-select:all;border:2px dashed #333}
+  button{width:92%;max-width:340px;height:85px;font-size:20px;font-weight:800;border-radius:16px;border:none;margin:10px;cursor:pointer}
   #connectBtn{background:#fff;color:#000}
   #talkBtn{background:#d90429;color:#fff;touch-action:none;user-select:none;transition:0.1s}
   #talkBtn.talking{background:#2ec400;transform:scale(0.97)}
   input{padding:16px;font-size:28px;width:88%;max-width:320px;border-radius:12px;border:2px solid #333;background:#1e1e1e;color:#fff;text-align:center;outline:none;letter-spacing:8px;font-weight:800}
-  input:focus{border-color:#00ff88}
   #status{font-size:18px;margin:16px;color:#aaa;min-height:24px}
  .label{color:#888;font-size:14px;margin-top:18px;text-transform:uppercase;letter-spacing:1px}
+  .shareBox{background:#1a1a1a;padding:12px;border-radius:12px;margin:10px auto;max-width:340px;word-break:break-all;font-size:13px;color:#aaa}
 </style>
 </head>
 <body>
-<div class="top-safe" aria-hidden="true"></div>
+<div class="top-safe"></div>
 <h2 style="margin:8px 0">Walkie Talkie</h2>
-<p style="color:#888;margin:0">4-Digit Pair | Fixed Voice</p>
-
+<p style="color:#888;margin:0">Your Fixed ID is 7777</p>
 <div class="content">
-<div class="label">Your 4-Digit ID</div>
-<div id="idBox" aria-live="polite" tabindex="0">...</div>
+<div class="label">Your ID</div>
+<div id="idBox">7777</div>
+
+<div class="shareBox" id="shareBox"></div>
 
 <label class="label" for="otherId">Enter Friend's 4 Digits</label>
-<input id="otherId" type="tel" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="----" aria-label="Enter 4 digit friend ID to connect">
-
+<input id="otherId" type="tel" inputmode="numeric" maxlength="4" placeholder="----">
 <br>
-<button id="connectBtn" onclick="connectToFriend()" aria-label="Connect to friend, double tap to connect">CONNECT</button>
+<button id="connectBtn" onclick="connectToFriend()">CONNECT</button>
 <br>
-<button id="talkBtn" aria-label="Hold to talk, double tap and hold to talk, release to stop listening" aria-pressed="false">HOLD TO TALK</button>
-<p id="status" aria-live="assertive">Generating ID...</p>
+<button id="talkBtn">HOLD TO TALK</button>
+<p id="status">Ready...</p>
 <audio id="remoteAudio" autoplay playsinline></audio>
 </div>
-
 <script>
-let myId = Math.floor(1000 + Math.random()*9000).toString();
+let urlParams = new URLSearchParams(window.location.search);
+let myId = urlParams.get('id') || "7777";
+let joinId = urlParams.get('join');
+
 document.getElementById('idBox').innerText = myId;
+if(joinId){ document.getElementById('otherId').value = joinId; }
+
+let shareLink = `${window.location.origin}${window.location.pathname}?join=${myId}`;
+document.getElementById('shareBox').innerHTML = `Share this link to your friend:<br><b style="color:#00ff88">${shareLink}</b><br><br><button onclick="navigator.clipboard.writeText('${shareLink}');alert('Link Copied!')" style="height:40px;font-size:14px;background:#00ff88;color:#000;">COPY FRIEND LINK</button>`;
 
 let peer = new Peer(myId, {debug:1});
 let localStream = null;
@@ -51,7 +57,6 @@ let currentCall = null;
 let isTalking = false;
 let remoteAudio = document.getElementById('remoteAudio');
 remoteAudio.volume = 1;
-
 let audioCtx = null;
 function getAudioCtx(){ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }
 function beep(f,d){ getAudioCtx(); let o=audioCtx.createOscillator(),g=audioCtx.createGain(); o.frequency.value=f; o.connect(g); g.connect(audioCtx.destination); g.gain.setValueAtTime(1,audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+d); o.start(); o.stop(audioCtx.currentTime+d); }
@@ -61,70 +66,53 @@ function beepConnected(){ beep(600,0.1); setTimeout(()=>beep(900,0.1),120); setT
 
 async function ensureMic(){
   if(localStream) return localStream;
-  document.getElementById('status').innerText = "Requesting microphone permission...";
+  document.getElementById('status').innerText = "Requesting mic...";
   try{
-    localStream = await navigator.mediaDevices.getUserMedia({
-      audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true, channelCount:1 }
-    });
+    localStream = await navigator.mediaDevices.getUserMedia({ audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true, channelCount:1 } });
     localStream.getAudioTracks().forEach(t => t.enabled = false);
-    document.getElementById('status').innerText = "Mic Ready! Enter 4 digit ID and press CONNECT.";
+    document.getElementById('status').innerText = "Mic Ready! Press CONNECT.";
     getAudioCtx();
     return localStream;
-  }catch(e){
-    document.getElementById('status').innerText = "Microphone permission denied. Please allow mic and reload.";
-    alert("Please allow microphone permission");
-    throw e;
-  }
+  }catch(e){ document.getElementById('status').innerText = "Allow Mic and reload"; throw e; }
 }
 
 function createPeer(id){
   peer = new Peer(id);
-  peer.on('open', ()=>{ document.getElementById('status').innerText = "Ready! Share ID: "+id; });
+  peer.on('open', ()=>{ 
+    let msg = joinId ? `Ready! Friend ID ${joinId} auto-filled. Press CONNECT` : `Ready! Your ID is ${id}. Share friend link.`;
+    document.getElementById('status').innerText = msg; 
+  });
   peer.on('error', (err)=>{
-    if(err.type==='unavailable-id' || err.type==='peer-unavailable'){
-      let newId = Math.floor(1000 + Math.random()*9000).toString();
-      document.getElementById('idBox').innerText = newId;
-      myId = newId;
-      setTimeout(()=>createPeer(newId),500);
-    } else {
-      document.getElementById('status').innerText = "Error: "+err.type;
-    }
+    if(err.type==='unavailable-id'){ document.getElementById('status').innerText = "ID 7777 is busy. Try again in 10 sec or use ?id=1234"; }
+    else if(err.type==='peer-unavailable'){ document.getElementById('status').innerText = "Friend ID not online. Ask friend to open link first."; }
+    else { document.getElementById('status').innerText = "Error: "+err.type; }
   });
-  peer.on('call', async (call)=>{
-    try{
-      await ensureMic();
-      call.answer(localStream);
-      handleCall(call);
-    }catch{}
-  });
+  peer.on('call', async (call)=>{ try{ await ensureMic(); call.answer(localStream); handleCall(call); }catch{} });
 }
 createPeer(myId);
 
 function handleCall(call){
   currentCall = call;
-  document.getElementById('status').innerText = "Connected! Hold button to talk.";
+  document.getElementById('status').innerText = "Connected! Hold to Talk.";
   beepConnected();
   call.on('stream', async (remoteStream)=>{
     remoteAudio.srcObject = remoteStream;
     try{ await remoteAudio.play(); }catch(e){}
-    document.getElementById('status').innerText = "Connected! Audio is live. Hold to Talk.";
+    document.getElementById('status').innerText = "Audio Live! Hold to Talk.";
   });
-  call.on('close', ()=>{ document.getElementById('status').innerText = "Call ended."; });
-  call.on('error', ()=>{ document.getElementById('status').innerText = "Call error."; });
 }
 
 async function connectToFriend(){
   let otherId = document.getElementById('otherId').value.trim();
-  if(otherId.length!==4 || isNaN(otherId)){ alert("Please enter only 4 digits, like 4721"); return; }
-  if(otherId===myId){ alert("You cannot enter your own ID"); return; }
+  if(otherId.length!==4){ alert("Enter 4 digits"); return; }
   try{
     await ensureMic();
     document.getElementById('status').innerText = "Connecting to "+otherId+"...";
     try{ await remoteAudio.play(); }catch{}
     let call = peer.call(otherId, localStream);
-    if(!call){ document.getElementById('status').innerText = "ID not found. Enter correct 4 digits."; return; }
+    if(!call){ document.getElementById('status').innerText = "ID not found"; return; }
     handleCall(call);
-  }catch(e){ document.getElementById('status').innerText = "Connect failed. Try another ID."; }
+  }catch(e){ document.getElementById('status').innerText = "Failed"; }
 }
 
 const talkBtn = document.getElementById('talkBtn');
@@ -132,36 +120,18 @@ function startTalking(){
   if(!localStream){ ensureMic(); return; }
   if(isTalking) return;
   localStream.getAudioTracks().forEach(t => t.enabled = true);
-  isTalking = true;
-  talkBtn.classList.add('talking');
-  talkBtn.innerText = "TALKING...";
-  talkBtn.setAttribute('aria-pressed','true');
-  document.getElementById('status').innerText = "Sending voice...";
-  beepOn();
-  if(navigator.vibrate) navigator.vibrate(50);
+  isTalking = true; talkBtn.classList.add('talking'); talkBtn.innerText = "TALKING..."; beepOn(); if(navigator.vibrate) navigator.vibrate(50);
 }
 function stopTalking(){
   if(!localStream || !isTalking) return;
   localStream.getAudioTracks().forEach(t => t.enabled = false);
-  isTalking = false;
-  talkBtn.classList.remove('talking');
-  talkBtn.innerText = "HOLD TO TALK";
-  talkBtn.setAttribute('aria-pressed','false');
-  document.getElementById('status').innerText = "Listening...";
-  beepOff();
-  if(navigator.vibrate) navigator.vibrate([30,40,30]);
+  isTalking = false; talkBtn.classList.remove('talking'); talkBtn.innerText = "HOLD TO TALK"; beepOff(); if(navigator.vibrate) navigator.vibrate([30,40,30]);
 }
-
 talkBtn.addEventListener('pointerdown', (e)=>{ e.preventDefault(); talkBtn.setPointerCapture(e.pointerId); startTalking(); });
 talkBtn.addEventListener('pointerup', (e)=>{ e.preventDefault(); stopTalking(); });
 talkBtn.addEventListener('pointercancel', stopTalking);
 talkBtn.addEventListener('lostpointercapture', stopTalking);
-talkBtn.addEventListener('contextmenu', e=>e.preventDefault());
-
-document.body.addEventListener('click', async ()=>{
-  getAudioCtx();
-  try{ await remoteAudio.play(); }catch{}
-}, {once:true});
+document.body.addEventListener('click', async ()=>{ getAudioCtx(); try{ await remoteAudio.play(); }catch{} }, {once:true});
 </script>
 </body>
 </html>
