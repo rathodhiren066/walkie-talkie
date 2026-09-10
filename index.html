@@ -2,147 +2,147 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Walkie Talkie - Clear Voice</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Walkie Talkie - Fixed Voice</title>
 <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 <style>
-  body{font-family:system-ui,sans-serif;text-align:center;background:#0f0f0f;color:#fff;padding:16px;margin:0}
-  #idBox{font-size:28px;font-weight:800;color:#00ff88;background:#1e1e1e;padding:14px;border-radius:12px;margin:12px auto;max-width:320px;letter-spacing:1px;user-select:all}
-  button{width:92%;max-width:340px;height:85px;font-size:20px;font-weight:700;border-radius:16px;border:none;margin:10px;cursor:pointer}
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  body{font-family:system-ui,sans-serif;text-align:center;background:#0f0f0f;color:#fff;padding:0;margin:0;padding-top:env(safe-area-inset-top)}
+ .top-safe{height:32px;width:100%}
+ .content{padding:0 16px 16px}
+  #idBox{font-size:42px;font-weight:900;color:#00ff88;background:#1e1e1e;padding:16px;border-radius:16px;margin:12px auto;max-width:320px;letter-spacing:6px;user-select:all;-webkit-user-select:all;border:2px dashed #333}
+  button{width:92%;max-width:340px;height:85px;font-size:20px;font-weight:800;border-radius:16px;border:none;margin:10px;cursor:pointer;touch-action:manipulation}
   #connectBtn{background:#fff;color:#000}
-  #talkBtn{background:#d90429;color:#fff;touch-action:none;user-select:none;-webkit-user-select:none;transition:0.1s}
+  #talkBtn{background:#d90429;color:#fff;touch-action:none;user-select:none;transition:0.1s}
   #talkBtn.talking{background:#2ec400;transform:scale(0.97)}
-  #talkBtn:disabled{background:#444;color:#888}
-  input{padding:16px;font-size:19px;width:88%;max-width:320px;border-radius:12px;border:2px solid #333;background:#1e1e1e;color:#fff;text-align:center;outline:none}
+  input{padding:16px;font-size:28px;width:88%;max-width:320px;border-radius:12px;border:2px solid #333;background:#1e1e1e;color:#fff;text-align:center;outline:none;letter-spacing:8px;font-weight:800}
   input:focus{border-color:#00ff88}
   #status{font-size:18px;margin:16px;color:#aaa;min-height:24px}
  .label{color:#888;font-size:14px;margin-top:18px;text-transform:uppercase;letter-spacing:1px}
-  hr{border:0;border-top:1px solid #222;margin:20px 0}
 </style>
 </head>
 <body>
+<div class="top-safe" aria-hidden="true"></div>
 <h2 style="margin:8px 0">Walkie Talkie</h2>
-<p style="color:#888;margin:0">48kHz Clear Voice | Hold to Talk</p>
+<p style="color:#888;margin:0">4-Digit Pair | Fixed Voice</p>
 
-<div class="label">Your ID (Share this)</div>
-<div id="idBox" aria-live="polite">Generating...</div>
+<div class="content">
+<div class="label">Your 4-Digit ID</div>
+<div id="idBox" aria-live="polite" tabindex="0">...</div>
 
-<input id="otherId" type="text" placeholder="Enter Friend ID" autocomplete="off" spellcheck="false">
+<label class="label" for="otherId">Enter Friend's 4 Digits</label>
+<input id="otherId" type="tel" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="----" aria-label="Enter 4 digit friend ID to connect">
+
 <br>
-<button id="connectBtn" onclick="connectToFriend()">CONNECT</button>
-
-<hr>
-
-<button id="talkBtn" disabled
- aria-label="Hold to talk, double tap and hold for TalkBack"
- aria-pressed="false">HOLD TO TALK</button>
-
-<p id="status" aria-live="assertive">Initializing...</p>
+<button id="connectBtn" onclick="connectToFriend()" aria-label="Connect to friend, double tap to connect">CONNECT</button>
+<br>
+<button id="talkBtn" aria-label="Hold to talk, double tap and hold to talk, release to stop listening" aria-pressed="false">HOLD TO TALK</button>
+<p id="status" aria-live="assertive">Generating ID...</p>
 <audio id="remoteAudio" autoplay playsinline></audio>
+</div>
 
 <script>
-let myId = "user_" + Math.floor(100000 + Math.random()*900000);
+let myId = Math.floor(1000 + Math.random()*9000).toString();
 document.getElementById('idBox').innerText = myId;
 
-let peer = new Peer(myId);
+let peer = new Peer(myId, {debug:1});
 let localStream = null;
 let currentCall = null;
 let isTalking = false;
+let remoteAudio = document.getElementById('remoteAudio');
+remoteAudio.volume = 1;
+
 let audioCtx = null;
-
-// Beep System
 function getAudioCtx(){ if(!audioCtx) audioCtx = new (window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended') audioCtx.resume(); }
-function beep(freq, dur, vol=1){
-  getAudioCtx();
-  let o = audioCtx.createOscillator();
-  let g = audioCtx.createGain();
-  o.frequency.value = freq;
-  o.type='sine';
-  o.connect(g); g.connect(audioCtx.destination);
-  g.gain.setValueAtTime(vol, audioCtx.currentTime);
-  g.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime+dur);
-  o.start(); o.stop(audioCtx.currentTime+dur);
-}
-function beepOn(){ beep(1000,0.12,1); setTimeout(()=>beep(1500,0.15,1),90); }
-function beepOff(){ beep(450,0.25,1); }
-function beepConnected(){ beep(600,0.1); setTimeout(()=>beep(900,0.1),120); setTimeout(()=>beep(1200,0.15),240); }
+function beep(f,d){ getAudioCtx(); let o=audioCtx.createOscillator(),g=audioCtx.createGain(); o.frequency.value=f; o.connect(g); g.connect(audioCtx.destination); g.gain.setValueAtTime(1,audioCtx.currentTime); g.gain.exponentialRampToValueAtTime(0.01,audioCtx.currentTime+d); o.start(); o.stop(audioCtx.currentTime+d); }
+function beepOn(){ beep(1000,0.12); setTimeout(()=>beep(1500,0.15),90); }
+function beepOff(){ beep(450,0.25); }
+function beepConnected(){ beep(600,0.1); setTimeout(()=>beep(900,0.1),120); setTimeout(()=>beep(1200,0.2),240); }
 
-// Mic - Ask only on user gesture
 async function ensureMic(){
   if(localStream) return localStream;
-  document.getElementById('status').innerText = "Requesting mic permission...";
+  document.getElementById('status').innerText = "Requesting microphone permission...";
   try{
     localStream = await navigator.mediaDevices.getUserMedia({
-      audio:{
-        sampleRate:48000,
-        sampleSize:16,
-        channelCount:1,
-        echoCancellation:true,
-        noiseSuppression:true,
-        autoGainControl:true
-      }
+      audio:{ echoCancellation:true, noiseSuppression:true, autoGainControl:true, channelCount:1 }
     });
-    localStream.getAudioTracks()[0].enabled = false; // Start Muted
-    document.getElementById('talkBtn').disabled = false;
-    document.getElementById('status').innerText = "Mic ready. Enter friend ID and CONNECT.";
+    localStream.getAudioTracks().forEach(t => t.enabled = false);
+    document.getElementById('status').innerText = "Mic Ready! Enter 4 digit ID and press CONNECT.";
     getAudioCtx();
     return localStream;
   }catch(e){
-    document.getElementById('status').innerText = "Mic permission denied. Please allow mic and reload.";
-    alert("Please allow microphone permission.");
+    document.getElementById('status').innerText = "Microphone permission denied. Please allow mic and reload.";
+    alert("Please allow microphone permission");
     throw e;
   }
 }
 
-peer.on('open', ()=>{ document.getElementById('status').innerText = "Ready. Share your ID."; });
-peer.on('error', (err)=>{ document.getElementById('status').innerText = "Error: "+err.type; });
-
-peer.on('call', async (call)=>{
-  try{
-    await ensureMic();
-    call.answer(localStream);
-    handleCall(call);
-  }catch{}
-});
+function createPeer(id){
+  peer = new Peer(id);
+  peer.on('open', ()=>{ document.getElementById('status').innerText = "Ready! Share ID: "+id; });
+  peer.on('error', (err)=>{
+    if(err.type==='unavailable-id' || err.type==='peer-unavailable'){
+      let newId = Math.floor(1000 + Math.random()*9000).toString();
+      document.getElementById('idBox').innerText = newId;
+      myId = newId;
+      setTimeout(()=>createPeer(newId),500);
+    } else {
+      document.getElementById('status').innerText = "Error: "+err.type;
+    }
+  });
+  peer.on('call', async (call)=>{
+    try{
+      await ensureMic();
+      call.answer(localStream);
+      handleCall(call);
+    }catch{}
+  });
+}
+createPeer(myId);
 
 function handleCall(call){
   currentCall = call;
   document.getElementById('status').innerText = "Connected! Hold button to talk.";
   beepConnected();
-  call.on('stream', (remoteStream)=>{
-    document.getElementById('remoteAudio').srcObject = remoteStream;
+  call.on('stream', async (remoteStream)=>{
+    remoteAudio.srcObject = remoteStream;
+    try{ await remoteAudio.play(); }catch(e){}
+    document.getElementById('status').innerText = "Connected! Audio is live. Hold to Talk.";
   });
   call.on('close', ()=>{ document.getElementById('status').innerText = "Call ended."; });
+  call.on('error', ()=>{ document.getElementById('status').innerText = "Call error."; });
 }
 
 async function connectToFriend(){
   let otherId = document.getElementById('otherId').value.trim();
-  if(!otherId){ alert("Enter Friend ID"); return; }
+  if(otherId.length!==4 || isNaN(otherId)){ alert("Please enter only 4 digits, like 4721"); return; }
+  if(otherId===myId){ alert("You cannot enter your own ID"); return; }
   try{
     await ensureMic();
     document.getElementById('status').innerText = "Connecting to "+otherId+"...";
+    try{ await remoteAudio.play(); }catch{}
     let call = peer.call(otherId, localStream);
+    if(!call){ document.getElementById('status').innerText = "ID not found. Enter correct 4 digits."; return; }
     handleCall(call);
-  }catch{}
+  }catch(e){ document.getElementById('status').innerText = "Connect failed. Try another ID."; }
 }
 
-// HOLD TO TALK - WhatsApp Style + TalkBack Double Tap and Hold
 const talkBtn = document.getElementById('talkBtn');
-
 function startTalking(){
-  if(!localStream || isTalking) return;
-  localStream.getAudioTracks()[0].enabled = true;
+  if(!localStream){ ensureMic(); return; }
+  if(isTalking) return;
+  localStream.getAudioTracks().forEach(t => t.enabled = true);
   isTalking = true;
   talkBtn.classList.add('talking');
-  talkBtn.innerText = "TALKING... RELEASE TO STOP";
+  talkBtn.innerText = "TALKING...";
   talkBtn.setAttribute('aria-pressed','true');
-  document.getElementById('status').innerText = "Your voice is going...";
+  document.getElementById('status').innerText = "Sending voice...";
   beepOn();
   if(navigator.vibrate) navigator.vibrate(50);
 }
 function stopTalking(){
-  if(!localStream ||!isTalking) return;
-  localStream.getAudioTracks()[0].enabled = false;
+  if(!localStream || !isTalking) return;
+  localStream.getAudioTracks().forEach(t => t.enabled = false);
   isTalking = false;
   talkBtn.classList.remove('talking');
   talkBtn.innerText = "HOLD TO TALK";
@@ -152,24 +152,16 @@ function stopTalking(){
   if(navigator.vibrate) navigator.vibrate([30,40,30]);
 }
 
-// Pointer Events = Works for Mouse, Touch, and TalkBack double-tap-and-hold
-talkBtn.addEventListener('pointerdown', (e)=>{
-  e.preventDefault();
-  startTalking();
-});
-talkBtn.addEventListener('pointerup', (e)=>{
-  e.preventDefault();
-  stopTalking();
-});
+talkBtn.addEventListener('pointerdown', (e)=>{ e.preventDefault(); talkBtn.setPointerCapture(e.pointerId); startTalking(); });
+talkBtn.addEventListener('pointerup', (e)=>{ e.preventDefault(); stopTalking(); });
 talkBtn.addEventListener('pointercancel', stopTalking);
-talkBtn.addEventListener('pointerleave', stopTalking);
-// Prevent context menu on long press
-talkBtn.addEventListener('contextmenu', (e)=>e.preventDefault());
+talkBtn.addEventListener('lostpointercapture', stopTalking);
+talkBtn.addEventListener('contextmenu', e=>e.preventDefault());
 
-// Click to enable mic if not enabled
-talkBtn.addEventListener('click', async ()=>{
-  if(!localStream) await ensureMic();
-});
+document.body.addEventListener('click', async ()=>{
+  getAudioCtx();
+  try{ await remoteAudio.play(); }catch{}
+}, {once:true});
 </script>
 </body>
 </html>
