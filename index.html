@@ -1,117 +1,62 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+<meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Walkie Talkie</title>
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#111111">
+<meta name="apple-mobile-web-app-capable" content="yes">
 <style>
-body{font-family:sans-serif;background:#0f0f0f;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;text-align:center}
-#status{margin:20px 0;font-size:18px;color:#00ff88;font-weight:bold}
-#roomBox{background:#1f1f1f;padding:12px 16px;border-radius:10px;width:90%;max-width:400px;word-break:break-all;font-size:13px;color:#aaa}
-#talkBtn{width:200px;height:200px;border-radius:50%;border:none;background:#ff3b30;color:white;font-size:22px;font-weight:bold;margin-top:25px;box-shadow:0 0 30px #ff3b3077;touch-action:none;user-select:none}
-#talkBtn:active,#talkBtn.talking{background:#00ff66;box-shadow:0 0 50px #00ff66cc;color:#000;transform:scale(1.05)}
-.shareBtn{margin-top:20px;padding:14px 28px;background:#fff;color:#000;border:none;border-radius:10px;font-weight:bold;font-size:16px}
+body{font-family:system-ui,sans-serif;background:#111;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;text-align:center}
+#status{margin:16px;color:#00ff88;font-weight:700;font-size:18px;min-height:24px}
+#roomBox{background:#222;padding:10px 12px;border-radius:8px;width:95%;max-width:420px;font-size:12px;word-break:break-all;color:#aaa}
+#visualizer{background:#1a1a1a;border-radius:12px;margin-top:16px;width:320px;height:60px;display:block}
+#joinBtn{padding:16px 32px;font-size:20px;font-weight:800;border-radius:12px;border:none;background:#00ff88;color:#000;margin-top:30px}
+#talkBtn{width:220px;height:220px;border-radius:50%;border:4px solid #fff;background:#ff3b30;color:#fff;font-size:22px;font-weight:800;margin-top:22px;touch-action:none;user-select:none;display:none}
+#talkBtn.talking{background:#00ff66;color:#000;box-shadow:0 0 40px #00ff66;transform:scale(1.05)}
+#talkBtn:disabled{opacity:0.3}
+.share{margin-top:20px;padding:12px 24px;border-radius:10px;border:none;font-weight:700;background:#fff;color:#000}
 </style>
 <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
 <h2>🔊 WALKIE TALKIE</h2>
-<div id="status">Starting Mic...</div>
+<div id="status">Shuru karne ke liye TAP karo</div>
 <div id="roomBox"></div>
-
-<!-- FIX 1: accessibility ke liye role aur label lagaya -->
-<button id="talkBtn" aria-label="Hold to Talk, Double tap and hold to speak" aria-pressed="false">HOLD<br>TO TALK</button>
-
-<button class="shareBtn" onclick="copyLink()">📋 Copy Link</button>
-
+<canvas id="visualizer" width="320" height="60"></canvas>
+<button id="joinBtn">TAP TO JOIN ROOM</button>
+<button id="talkBtn">HOLD TO TALK</button>
+<button class="share" onclick="copyLink()">📋 Link Copy Karo</button>
+<audio id="remoteAudio" autoplay playsinline></audio>
 <script>
 let roomId = new URLSearchParams(location.search).get('room');
-if(!roomId){ roomId = Math.floor(1000 + Math.random()*9000).toString(); location.replace('?room='+roomId); }
-const roomLink = location.origin + location.pathname + '?room=' + roomId;
-document.getElementById('roomBox').innerText = roomLink;
-
-let peer, conn, localStream, audioCtx;
-const statusEl = document.getElementById('status');
-const talkBtn = document.getElementById('talkBtn');
-const hostId = 'walkie-room-' + roomId;
-
-// FIX 2: Beep sound function - blind ke liye
-function beep(freq, duration){
-  try{
-    if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    const o = audioCtx.createOscillator();
-    const g = audioCtx.createGain();
-    o.frequency.value = freq;
-    o.connect(g); g.connect(audioCtx.destination);
-    o.start();
-    g.gain.exponentialRampToValueAtTime(0.00001, audioCtx.currentTime + duration);
-    setTimeout(()=>o.stop(), duration*1000);
-  }catch(e){}
-}
-
-async function init(){
-  try{
-    localStream = await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
-    localStream.getAudioTracks()[0].enabled = false;
-    startAsHost();
-  }catch(e){ statusEl.innerText = "Mic Permission Do"; }
-}
-
-function startAsHost(){
-  statusEl.innerText = "Room "+roomId+" Ready";
-  peer = new Peer(hostId);
-  peer.on('error', err=>{ if(err.type === 'unavailable-id'){ peer.destroy(); joinAsGuest(); }});
-  peer.on('connection', c=>{ conn=c; setupConn(); });
-  peer.on('call', call=>{ call.answer(localStream); call.on('stream', playAudio); });
-}
-function joinAsGuest(){
-  statusEl.innerText = "Joining Room "+roomId;
-  peer = new Peer();
-  peer.on('open', ()=>{
-    conn = peer.connect(hostId, {reliable:true}); setupConn();
-    setTimeout(()=>{ const call = peer.call(hostId, localStream); call.on('stream', playAudio); }, 500);
-  });
-}
-function setupConn(){
-  if(!conn) return;
-  conn.on('open', ()=>{ statusEl.innerText = "CONNECTED! Hold to talk"; beep(1000, 0.2); });
-}
-function playAudio(stream){
-  const audio = new Audio(); audio.srcObject = stream; audio.autoplay = true; audio.playsInline = true; audio.play().catch(()=>{});
-}
-function copyLink(){ navigator.clipboard.writeText(roomLink).then(()=>alert('Link Copied: '+roomLink)); }
-
-// FIX 3: Yahi main fix hai - pehle sirf touch tha, ab pointer + keyboard + TalkBack sab kaam karega
-let isTalking = false;
-function startTalk(){
-  if(isTalking) return;
-  isTalking = true;
-  if(localStream) localStream.getAudioTracks()[0].enabled = true;
-  talkBtn.classList.add('talking');
-  talkBtn.setAttribute('aria-pressed','true');
-  statusEl.innerText="🔴 Talking... Release to Send";
-  beep(800, 0.15); // ON beep - tez
-}
-function stopTalk(){
-  if(!isTalking) return;
-  isTalking = false;
-  if(localStream) localStream.getAudioTracks()[0].enabled = false;
-  talkBtn.classList.remove('talking');
-  talkBtn.setAttribute('aria-pressed','false');
-  statusEl.innerText="✅ Listening...";
-  beep(400, 0.25); // OFF beep - halki
-}
-
-// Ye 4 event sab device pe kaam karte hai, TalkBack ke sath bhi
-talkBtn.addEventListener('pointerdown', (e)=>{ e.preventDefault(); startTalk(); });
-talkBtn.addEventListener('pointerup', (e)=>{ e.preventDefault(); stopTalk(); });
-talkBtn.addEventListener('pointercancel', stopTalk);
-talkBtn.addEventListener('pointerleave', stopTalk);
-
-// Blind user keyboard se Space dabake bhi bol payega
-talkBtn.addEventListener('keydown', (e)=>{ if(e.code==='Space' || e.code==='Enter'){ e.preventDefault(); startTalk(); }});
-talkBtn.addEventListener('keyup', (e)=>{ if(e.code==='Space' || e.code==='Enter'){ e.preventDefault(); stopTalk(); }});
-
-init();
+if(!roomId){ roomId=Math.floor(1000+Math.random()*9000).toString(); location.replace('?room='+roomId); }
+document.getElementById('roomBox').innerText=location.href;
+const statusEl=document.getElementById('status'), talkBtn=document.getElementById('talkBtn'), joinBtn=document.getElementById('joinBtn'), remoteAudio=document.getElementById('remoteAudio'), canvas=document.getElementById('visualizer'), ctx=canvas.getContext('2d');
+const hostId='walkie-room-'+roomId; let peer,localStream,audioCtx,analyser,dataArray,animId;
+const peerConfig={config:{iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}]}};
+function beep(f,d){try{if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended')audioCtx.resume(); let o=audioCtx.createOscillator(),g=audioCtx.createGain(); o.frequency.value=f; o.connect(g); g.connect(audioCtx.destination); o.start(); g.gain.exponentialRampToValueAtTime(0.00001,audioCtx.currentTime+d); setTimeout(()=>o.stop(),d*1000);}catch(e){}}
+async function init(){try{localStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}}); localStream.getAudioTracks()[0].enabled=false; audioCtx=new(window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended')await audioCtx.resume(); startAsHost(); drawIdle();}catch(e){statusEl.innerText="Mic permission do: "+e.message;}}
+function handleConnection(conn){conn.on('open',()=>{talkBtn.disabled=false; statusEl.innerText="Connected! Dabake bolo"; beep(1000,0.2); if(navigator.vibrate)navigator.vibrate([200,100,200]);}); conn.on('close',onDisconnect); conn.on('error',onDisconnect);}
+function onDisconnect(){talkBtn.disabled=true; statusEl.innerText="Samne wala disconnect ho gaya"; beep(300,0.5); remoteAudio.srcObject=null; stopVisualizer();}
+function startAsHost(){statusEl.innerText="Room "+roomId+" Ready"; peer=new Peer(hostId,peerConfig); peer.on('error',err=>{if(err.type==='unavailable-id'){peer.destroy(); joinAsGuest();}}); peer.on('disconnected',()=>peer.reconnect()); peer.on('call',call=>{call.answer(localStream); call.on('stream',s=>playAudio(s));}); peer.on('connection',c=>{handleConnection(c); c.on('open',()=>{let bc=peer.call(c.peer,localStream); bc.on('stream',s=>playAudio(s));});});}
+function joinAsGuest(){statusEl.innerText="Room join ho rahe ho..."; peer=new Peer(peerConfig); peer.on('open',()=>{let conn=peer.connect(hostId); handleConnection(conn); let call=peer.call(hostId,localStream); call.on('stream',s=>playAudio(s));}); peer.on('call',call=>{call.answer(localStream); call.on('stream',s=>playAudio(s));}); peer.on('disconnected',()=>peer.reconnect());}
+function playAudio(stream){remoteAudio.srcObject=stream; remoteAudio.play().catch(()=>{}); setupVisualizer(stream);}
+function setupVisualizer(stream){if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended')audioCtx.resume(); let source=audioCtx.createMediaStreamSource(stream); analyser=audioCtx.createAnalyser(); analyser.fftSize=128; source.connect(analyser); dataArray=new Uint8Array(analyser.frequencyBinCount); draw();}
+function draw(){animId=requestAnimationFrame(draw); if(!analyser)return; analyser.getByteFrequencyData(dataArray); ctx.clearRect(0,0,canvas.width,canvas.height); let bw=(canvas.width/dataArray.length)*2.2; let x=0; for(let i=0;i<dataArray.length;i++){let h=dataArray[i]/3; ctx.fillStyle=h>20?'#00ff88':'#333'; ctx.fillRect(x,canvas.height-h,bw,h); x+=bw+2;}}
+function drawIdle(){ctx.clearRect(0,0,canvas.width,canvas.height); ctx.fillStyle="#222"; for(let i=0;i<32;i++){ctx.fillRect(i*10,28,6,4);}}
+function stopVisualizer(){if(animId)cancelAnimationFrame(animId); analyser=null; drawIdle();}
+function copyLink(){navigator.clipboard.writeText(location.href).then(()=>{let p=statusEl.innerText; statusEl.innerText="Link Copied!"; setTimeout(()=>statusEl.innerText=p,1500);});}
+let talking=false;
+function startTalk(e){if(e)e.preventDefault(); if(!localStream||talking||talkBtn.disabled)return; talking=true; if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume(); remoteAudio.play().catch(()=>{}); localStream.getAudioTracks()[0].enabled=true; talkBtn.classList.add('talking'); statusEl.innerText="Bol rahe ho..."; beep(800,0.12);}
+function stopTalk(e){if(e)e.preventDefault(); if(!talking)return; talking=false; localStream.getAudioTracks()[0].enabled=false; talkBtn.classList.remove('talking'); statusEl.innerText="Sun rahe ho..."; beep(400,0.2);}
+talkBtn.addEventListener('pointerdown',startTalk);
+talkBtn.addEventListener('pointerup',stopTalk);
+talkBtn.addEventListener('pointerleave',stopTalk);
+talkBtn.addEventListener('pointercancel',stopTalk);
+joinBtn.addEventListener('click', async()=>{ joinBtn.style.display='none'; talkBtn.style.display='block'; await init(); });
+if('serviceWorker' in navigator){navigator.serviceWorker.register('./sw.js');}
 </script>
 </body>
 </html>
