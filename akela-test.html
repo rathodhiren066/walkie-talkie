@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="hi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WhatsApp Style Test</title>
+<style>
+  body{font-family:Arial;background:#0b141a;color:#e9edef;text-align:center;padding:15px}
+  .header{background:#202c33;padding:15px;border-radius:10px;margin-bottom:20px}
+  button{
+    background:#00a884; color:white; border:none;
+    padding:30px 20px; font-size:22px; font-weight:bold;
+    border-radius:50px; width:95%; max-width:400px;
+    margin:20px auto; display:block;
+    user-select:none; -webkit-user-select:none;
+    touch-action:none;
+  }
+  button:active, button.hold-active{background:#06cf9c; transform:scale(0.96);}
+  #status{background:#202c33;padding:15px;border-radius:10px;margin-top:20px;font-size:18px;min-height:30px;color:#00ff00}
+  audio{width:95%;margin-top:20px}
+  .hint{color:#8696a0;font-size:16px;margin-top:10px}
+</style>
+</head>
+<body>
+<div class="header">
+  <h2>WhatsApp Style Walkie</h2>
+  <p>Room: 8599</p>
+</div>
+
+<button id="echoBtn">🎤 HOLD TO TALK</button>
+<p class="hint">TalkBack में: बटन पर डबल-टैप करके दूसरी बार HOLD रखो, बोलो, फिर छोड़ दो</p>
+
+<div id="status" aria-live="assertive">Button ko dabake rakho aur bolo</div>
+<audio id="playback" controls></audio>
+
+<script>
+let recorder, chunks=[], stream;
+let isHolding = false;
+const btn = document.getElementById('echoBtn');
+const status = document.getElementById('status');
+const playback = document.getElementById('playback');
+
+function setStatus(t){ status.textContent = t; }
+
+async function startHold(){
+  if(isHolding) return;
+  isHolding = true;
+  btn.classList.add('hold-active');
+  btn.textContent = '🔴 RECORDING... CHHOD DO BAND KARNE KE LIYE';
+  setStatus('Sun raha hu... bolo ab');
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    chunks=[];
+    recorder = new MediaRecorder(stream);
+    recorder.ondataavailable = e => chunks.push(e.data);
+    recorder.onstop = ()=>{
+      const blob = new Blob(chunks,{type:'audio/webm'});
+      playback.src = URL.createObjectURL(blob);
+      playback.play();
+      setStatus('Ye rahi aapki awaz! WhatsApp style OK hai!');
+      stream.getTracks().forEach(t=>t.stop());
+    };
+    recorder.start();
+  }catch(err){
+    setStatus('Mic Allow karo: '+err.message);
+    isHolding = false;
+    btn.classList.remove('hold-active');
+    btn.textContent='🎤 HOLD TO TALK';
+  }
+}
+
+function stopHold(){
+  if(!isHolding) return;
+  isHolding = false;
+  btn.classList.remove('hold-active');
+  btn.textContent='🎤 HOLD TO TALK';
+  if(recorder && recorder.state=='recording'){
+    recorder.stop();
+    setStatus('Recording band, ab baja raha hu...');
+  }
+}
+
+// WhatsApp Style Events - Mouse + Touch + Pointer sab ke liye
+btn.addEventListener('pointerdown', (e)=>{
+  e.preventDefault();
+  startHold();
+});
+btn.addEventListener('pointerup', (e)=>{
+  e.preventDefault();
+  stopHold();
+});
+btn.addEventListener('pointercancel', stopHold);
+btn.addEventListener('pointerleave', stopHold);
+
+// Extra safety for mobile
+btn.addEventListener('touchstart', (e)=>{ e.preventDefault(); startHold(); }, {passive:false});
+btn.addEventListener('touchend', (e)=>{ e.preventDefault(); stopHold(); }, {passive:false});
+
+setStatus('Taiyaar hai - HOLD TO TALK dabake rakho');
+</script>
+</body>
+</html>
