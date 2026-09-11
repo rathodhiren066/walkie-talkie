@@ -1,102 +1,113 @@
 <!DOCTYPE html>
-<html lang="hi">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>WhatsApp Style Test</title>
+<title>Mic Self Test - HD</title>
+<meta name="theme-color" content="#111111">
 <style>
-  body{font-family:Arial;background:#0b141a;color:#e9edef;text-align:center;padding:15px}
-  .header{background:#202c33;padding:15px;border-radius:10px;margin-bottom:20px}
-  button{
-    background:#00a884; color:white; border:none;
-    padding:30px 20px; font-size:22px; font-weight:bold;
-    border-radius:50px; width:95%; max-width:400px;
-    margin:20px auto; display:block;
-    user-select:none; -webkit-user-select:none;
-    touch-action:none;
-  }
-  button:active, button.hold-active{background:#06cf9c; transform:scale(0.96);}
-  #status{background:#202c33;padding:15px;border-radius:10px;margin-top:20px;font-size:18px;min-height:30px;color:#00ff00}
-  audio{width:95%;margin-top:20px}
-  .hint{color:#8696a0;font-size:16px;margin-top:10px}
+body{font-family:system-ui,sans-serif;background:#111;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;text-align:center}
+#status{margin:16px;color:#00ff88;font-weight:700;font-size:18px;min-height:24px}
+#visualizer{background:#1a1a1a;border-radius:12px;margin-top:16px;width:320px;height:60px;display:block}
+#testBtn{padding:18px 36px;font-size:20px;font-weight:800;border-radius:12px;border:none;background:#00ff88;color:#000;margin-top:30px}
+#testBtn.rec{background:#ff3b30;color:#fff;box-shadow:0 0 30px #ff3b30; animation:pulse 1s infinite}
+@keyframes pulse{0%{transform:scale(1)}50%{transform:scale(1.05)}100%{transform:scale(1)}}
+#hdBtn{margin-top:20px;padding:12px 20px;border-radius:10px;border:2px solid #555;background:#222;color:#fff;font-weight:700}
+#hdBtn.on{background:#22c55e;color:#000;border-color:#22c55e}
+.hint{color:#888; font-size:13px; margin-top:12px;}
 </style>
 </head>
 <body>
-<div class="header">
-  <h2>WhatsApp Style Walkie</h2>
-  <p>Room: 8599</p>
-</div>
-
-<button id="echoBtn">🎤 HOLD TO TALK</button>
-<p class="hint">TalkBack में: बटन पर डबल-टैप करके दूसरी बार HOLD रखो, बोलो, फिर छोड़ दो</p>
-
-<div id="status" aria-live="assertive">Button ko dabake rakho aur bolo</div>
-<audio id="playback" controls></audio>
+<h2>🎤 MIC SELF TEST</h2>
+<div id="status" aria-live="polite">TAP karke bolo, 10 sec baad sunai dega</div>
+<canvas id="visualizer" width="320" height="60" aria-hidden="true"></canvas>
+<button id="testBtn">TAP TO TEST MIC</button>
+<button id="hdBtn" role="switch" aria-checked="false">HD Quality: Off</button>
+<div class="hint">HD On = Original awaz, HD Off = Noise Cancel</div>
+<audio id="playback" controls style="margin-top:20px; width:95%; max-width:400px; display:none"></audio>
 
 <script>
-let recorder, chunks=[], stream;
-let isHolding = false;
-const btn = document.getElementById('echoBtn');
-const status = document.getElementById('status');
-const playback = document.getElementById('playback');
+const statusEl=document.getElementById('status'), testBtn=document.getElementById('testBtn'), hdBtn=document.getElementById('hdBtn'), playback=document.getElementById('playback'), canvas=document.getElementById('visualizer'), ctx=canvas.getContext('2d');
+let localStream, audioCtx, analyser, dataArray, animId, mediaRecorder, chunks=[];
+let isHD=false;
 
-function setStatus(t){ status.textContent = t; }
+function getAudioConstraints(){
+  return isHD? { echoCancellation:false, noiseSuppression:false, autoGainControl:false, sampleRate:48000, channelCount:2 } : { echoCancellation:true, noiseSuppression:true, autoGainControl:true };
+}
+function beep(f,d){try{if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended')audioCtx.resume(); let o=audioCtx.createOscillator(),g=audioCtx.createGain(); o.frequency.value=f; o.connect(g); g.connect(audioCtx.destination); o.start(); g.gain.exponentialRampToValueAtTime(0.00001,audioCtx.currentTime+d); setTimeout(()=>o.stop(),d*1000);}catch(e){}}
 
-async function startHold(){
-  if(isHolding) return;
-  isHolding = true;
-  btn.classList.add('hold-active');
-  btn.textContent = '🔴 RECORDING... CHHOD DO BAND KARNE KE LIYE';
-  setStatus('Sun raha hu... bolo ab');
+hdBtn.addEventListener('click', ()=>{
+  isHD=!isHD;
+  hdBtn.setAttribute('aria-checked', isHD.toString());
+  hdBtn.textContent = isHD? 'HD Quality: On' : 'HD Quality: Off';
+  hdBtn.classList.toggle('on', isHD);
+  statusEl.innerText = isHD? 'HD On - Max Quality' : 'HD Off - Normal';
+  if(navigator.vibrate) navigator.vibrate(50);
+});
+
+function setupVisualizer(stream){
+  if(!audioCtx) audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  if(audioCtx.state==='suspended') audioCtx.resume();
+  let source=audioCtx.createMediaStreamSource(stream);
+  analyser=audioCtx.createAnalyser(); analyser.fftSize=128;
+  source.connect(analyser);
+  dataArray=new Uint8Array(analyser.frequencyBinCount);
+  draw();
+}
+function draw(){
+  animId=requestAnimationFrame(draw);
+  if(!analyser) return;
+  analyser.getByteFrequencyData(dataArray);
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  let bw=(canvas.width/dataArray.length)*2.2; let x=0;
+  for(let i=0;i<dataArray.length;i++){
+    let h=dataArray[i]/3;
+    ctx.fillStyle=h>20?'#00ff88':'#333';
+    ctx.fillRect(x,canvas.height-h,bw,h); x+=bw+2;
+  }
+}
+function drawIdle(){ ctx.clearRect(0,0,canvas.width,canvas.height); ctx.fillStyle="#222"; for(let i=0;i<32;i++){ctx.fillRect(i*10,28,6,4);} }
+drawIdle();
+
+testBtn.addEventListener('click', async()=>{
   try{
-    stream = await navigator.mediaDevices.getUserMedia({audio:true});
+    if(mediaRecorder && mediaRecorder.state==='recording'){
+      mediaRecorder.stop(); return;
+    }
+    playback.style.display='none';
+    localStream = await navigator.mediaDevices.getUserMedia({audio:getAudioConstraints()});
+    setupVisualizer(localStream);
+
     chunks=[];
-    recorder = new MediaRecorder(stream);
-    recorder.ondataavailable = e => chunks.push(e.data);
-    recorder.onstop = ()=>{
-      const blob = new Blob(chunks,{type:'audio/webm'});
-      playback.src = URL.createObjectURL(blob);
+    mediaRecorder = new MediaRecorder(localStream);
+    mediaRecorder.ondataavailable = e=>{ if(e.data.size>0) chunks.push(e.data); };
+    mediaRecorder.onstop = ()=>{
+      let blob=new Blob(chunks,{type:'audio/webm'});
+      let url=URL.createObjectURL(blob);
+      playback.src=url;
+      playback.style.display='block';
       playback.play();
-      setStatus('Ye rahi aapki awaz! WhatsApp style OK hai!');
-      stream.getTracks().forEach(t=>t.stop());
+      statusEl.innerText="Ye rahi aapki awaz! Sahi hai to Walkie Talkie bhi chalega";
+      testBtn.innerText="TAP TO TEST AGAIN";
+      testBtn.classList.remove('rec');
+      beep(1000,0.2);
+      if(animId) cancelAnimationFrame(animId);
+      drawIdle();
+      localStream.getTracks().forEach(t=>t.stop());
     };
-    recorder.start();
-  }catch(err){
-    setStatus('Mic Allow karo: '+err.message);
-    isHolding = false;
-    btn.classList.remove('hold-active');
-    btn.textContent='🎤 HOLD TO TALK';
+
+    mediaRecorder.start();
+    testBtn.innerText="🔴 RECORDING... 10s";
+    testBtn.classList.add('rec');
+    statusEl.innerText="Bolo ab... 10 second record ho raha hai";
+    beep(800,0.12);
+
+    setTimeout(()=>{ if(mediaRecorder.state==='recording') mediaRecorder.stop(); }, 10000);
+
+  }catch(e){
+    statusEl.innerText="Mic Error: "+e.message;
   }
-}
-
-function stopHold(){
-  if(!isHolding) return;
-  isHolding = false;
-  btn.classList.remove('hold-active');
-  btn.textContent='🎤 HOLD TO TALK';
-  if(recorder && recorder.state=='recording'){
-    recorder.stop();
-    setStatus('Recording band, ab baja raha hu...');
-  }
-}
-
-// WhatsApp Style Events - Mouse + Touch + Pointer sab ke liye
-btn.addEventListener('pointerdown', (e)=>{
-  e.preventDefault();
-  startHold();
 });
-btn.addEventListener('pointerup', (e)=>{
-  e.preventDefault();
-  stopHold();
-});
-btn.addEventListener('pointercancel', stopHold);
-btn.addEventListener('pointerleave', stopHold);
-
-// Extra safety for mobile
-btn.addEventListener('touchstart', (e)=>{ e.preventDefault(); startHold(); }, {passive:false});
-btn.addEventListener('touchend', (e)=>{ e.preventDefault(); stopHold(); }, {passive:false});
-
-setStatus('Taiyaar hai - HOLD TO TALK dabake rakho');
 </script>
 </body>
 </html>
