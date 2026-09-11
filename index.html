@@ -6,38 +6,80 @@
 <title>Walkie Talkie</title>
 <link rel="manifest" href="./manifest.json">
 <meta name="theme-color" content="#111111">
-<meta name="apple-mobile-web-app-capable" content="yes">
 <style>
 body{font-family:system-ui,sans-serif;background:#111;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px;text-align:center}
 #status{margin:16px;color:#00ff88;font-weight:700;font-size:18px;min-height:24px}
 #roomBox{background:#222;padding:10px 12px;border-radius:8px;width:95%;max-width:420px;font-size:12px;word-break:break-all;color:#aaa}
 #visualizer{background:#1a1a1a;border-radius:12px;margin-top:16px;width:320px;height:60px;display:block}
 #joinBtn{padding:16px 32px;font-size:20px;font-weight:800;border-radius:12px;border:none;background:#00ff88;color:#000;margin-top:30px}
-#talkBtn{width:220px;height:220px;border-radius:50%;border:4px solid #fff;background:#ff3b30;color:#fff;font-size:22px;font-weight:800;margin-top:22px;touch-action:none;user-select:none;display:none}
+#talkBtn{width:220px;height:220px;border-radius:50%;border:4px solid #fff;background:#ff3b30;color:#fff;font-size:22px;font-weight:800;margin-top:22px;touch-action:none;user-select:none;display:none;position:relative;z-index:2}
 #talkBtn.talking{background:#00ff66;color:#000;box-shadow:0 0 40px #00ff66;transform:scale(1.05)}
+#talkBtn.locked{background:#00ff66; border-color:#00ff66; box-shadow:0 0 50px #00ff88;}
 #talkBtn:disabled{opacity:0.3}
 .share{margin-top:20px;padding:12px 24px;border-radius:10px;border:none;font-weight:700;background:#fff;color:#000}
+#hdBtn{margin-top:20px;padding:12px 20px;border-radius:10px;border:2px solid #555;background:#222;color:#fff;font-weight:700;display:none}
+#hdBtn.on{background:#22c55e;color:#000;border-color:#22c55e}
+#actionRow{display:none; gap:16px; margin-top:20px; align-items:center}
+#lockBtn, #cancelBtn{padding:14px 22px; border-radius:12px; border:none; font-weight:800; font-size:16px}
+#lockBtn{background:#1f2937; color:#fff; border:2px solid #555}
+#lockBtn.locked{ background:#00ff88; color:#000; border-color:#00ff88}
+#cancelBtn{background:#7f1d1d; color:#fff; }
+.hint{color:#888; font-size:13px; margin-top:10px; min-height:18px}
 </style>
 <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body>
 <h2>🔊 WALKIE TALKIE</h2>
-<div id="status">Shuru karne ke liye TAP karo</div>
+<div id="status" aria-live="polite" aria-atomic="true">Shuru karne ke liye TAP karo</div>
 <div id="roomBox"></div>
-<canvas id="visualizer" width="320" height="60"></canvas>
+<canvas id="visualizer" width="320" height="60" aria-hidden="true"></canvas>
 <button id="joinBtn">TAP TO JOIN ROOM</button>
-<button id="talkBtn">HOLD TO TALK</button>
+<button id="talkBtn" aria-label="Hold to talk, press and hold to speak">HOLD TO TALK</button>
+<div id="actionRow">
+  <button id="cancelBtn" aria-label="Cancel recording">❌ Cancel</button>
+  <button id="lockBtn" aria-label="Lock recording">🔒 Lock</button>
+</div>
+<div id="hint" class="hint" aria-live="polite"></div>
+<button id="hdBtn" role="switch" aria-checked="false" aria-label="HD Quality">HD Quality: Off</button>
 <button class="share" onclick="copyLink()">📋 Link Copy Karo</button>
 <audio id="remoteAudio" autoplay playsinline></audio>
 <script>
 let roomId = new URLSearchParams(location.search).get('room');
 if(!roomId){ roomId=Math.floor(1000+Math.random()*9000).toString(); location.replace('?room='+roomId); }
 document.getElementById('roomBox').innerText=location.href;
-const statusEl=document.getElementById('status'), talkBtn=document.getElementById('talkBtn'), joinBtn=document.getElementById('joinBtn'), remoteAudio=document.getElementById('remoteAudio'), canvas=document.getElementById('visualizer'), ctx=canvas.getContext('2d');
+const statusEl=document.getElementById('status'), talkBtn=document.getElementById('talkBtn'), joinBtn=document.getElementById('joinBtn'), hdBtn=document.getElementById('hdBtn'), remoteAudio=document.getElementById('remoteAudio'), canvas=document.getElementById('visualizer'), ctx=canvas.getContext('2d');
+const actionRow=document.getElementById('actionRow'), lockBtn=document.getElementById('lockBtn'), cancelBtn=document.getElementById('cancelBtn'), hintEl=document.getElementById('hint');
 const hostId='walkie-room-'+roomId; let peer,localStream,audioCtx,analyser,dataArray,animId;
+let isHD = false;
 const peerConfig={config:{iceServers:[{urls:'stun:stun.l.google.com:19302'},{urls:'stun:stun1.l.google.com:19302'}]}};
+function getAudioConstraints(){ return isHD? { echoCancellation:false, noiseSuppression:false, autoGainControl:false, sampleRate:48000, channelCount:2 } : { echoCancellation:true, noiseSuppression:true, autoGainControl:true }; }
 function beep(f,d){try{if(!audioCtx)audioCtx=new(window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended')audioCtx.resume(); let o=audioCtx.createOscillator(),g=audioCtx.createGain(); o.frequency.value=f; o.connect(g); g.connect(audioCtx.destination); o.start(); g.gain.exponentialRampToValueAtTime(0.00001,audioCtx.currentTime+d); setTimeout(()=>o.stop(),d*1000);}catch(e){}}
-async function init(){try{localStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}}); localStream.getAudioTracks()[0].enabled=false; audioCtx=new(window.AudioContext||window.webkitAudioContext)(); if(audioCtx.state==='suspended')await audioCtx.resume(); startAsHost(); drawIdle();}catch(e){statusEl.innerText="Mic permission do: "+e.message;}}
+async function init(){try{
+  try { if ('wakeLock' in navigator) { let wl = await navigator.wakeLock.request('screen'); document.addEventListener('visibilitychange', async () => { if (wl!== null && document.visibilityState === 'visible') { wl = await navigator.wakeLock.request('screen'); } }); } } catch(e){}
+  localStream=await navigator.mediaDevices.getUserMedia({audio:getAudioConstraints()});
+  localStream.getAudioTracks()[0].enabled=false;
+  audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+  if(audioCtx.state==='suspended')await audioCtx.resume();
+  startAsHost();
+  drawIdle();
+  hdBtn.style.display='block';
+}catch(e){statusEl.innerText="Mic permission do: "+e.message;}}
+hdBtn.addEventListener('click', async ()=>{
+  isHD =!isHD;
+  hdBtn.setAttribute('aria-checked', isHD.toString());
+  hdBtn.textContent = isHD? 'HD Quality: On' : 'HD Quality: Off';
+  hdBtn.classList.toggle('on', isHD);
+  statusEl.innerText = isHD? 'HD On - Max Quality' : 'HD Off - Normal';
+  if(navigator.vibrate) navigator.vibrate(50);
+  try{
+    const newStream = await navigator.mediaDevices.getUserMedia({audio:getAudioConstraints()});
+    const wasEnabled = localStream? localStream.getAudioTracks()[0].enabled : false;
+    if(localStream) localStream.getTracks().forEach(t=>t.stop());
+    localStream = newStream;
+    localStream.getAudioTracks()[0].enabled = wasEnabled;
+    if(peer){ Object.values(peer.connections).flat().forEach(conn=>{ if(conn.peerConnection){ const sender = conn.peerConnection.getSenders().find(s=>s.track && s.track.kind==='audio'); if(sender) sender.replaceTrack(localStream.getAudioTracks()[0]); } }); }
+  }catch(e){ statusEl.innerText="HD Switch Failed: "+e.message; }
+});
 function handleConnection(conn){conn.on('open',()=>{talkBtn.disabled=false; statusEl.innerText="Connected! Dabake bolo"; beep(1000,0.2); if(navigator.vibrate)navigator.vibrate([200,100,200]);}); conn.on('close',onDisconnect); conn.on('error',onDisconnect);}
 function onDisconnect(){talkBtn.disabled=true; statusEl.innerText="Samne wala disconnect ho gaya"; beep(300,0.5); remoteAudio.srcObject=null; stopVisualizer();}
 function startAsHost(){statusEl.innerText="Room "+roomId+" Ready"; peer=new Peer(hostId,peerConfig); peer.on('error',err=>{if(err.type==='unavailable-id'){peer.destroy(); joinAsGuest();}}); peer.on('disconnected',()=>peer.reconnect()); peer.on('call',call=>{call.answer(localStream); call.on('stream',s=>playAudio(s));}); peer.on('connection',c=>{handleConnection(c); c.on('open',()=>{let bc=peer.call(c.peer,localStream); bc.on('stream',s=>playAudio(s));});});}
@@ -48,13 +90,14 @@ function draw(){animId=requestAnimationFrame(draw); if(!analyser)return; analyse
 function drawIdle(){ctx.clearRect(0,0,canvas.width,canvas.height); ctx.fillStyle="#222"; for(let i=0;i<32;i++){ctx.fillRect(i*10,28,6,4);}}
 function stopVisualizer(){if(animId)cancelAnimationFrame(animId); analyser=null; drawIdle();}
 function copyLink(){navigator.clipboard.writeText(location.href).then(()=>{let p=statusEl.innerText; statusEl.innerText="Link Copied!"; setTimeout(()=>statusEl.innerText=p,1500);});}
-let talking=false;
-function startTalk(e){if(e)e.preventDefault(); if(!localStream||talking||talkBtn.disabled)return; talking=true; if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume(); remoteAudio.play().catch(()=>{}); localStream.getAudioTracks()[0].enabled=true; talkBtn.classList.add('talking'); statusEl.innerText="Bol rahe ho..."; beep(800,0.12);}
-function stopTalk(e){if(e)e.preventDefault(); if(!talking)return; talking=false; localStream.getAudioTracks()[0].enabled=false; talkBtn.classList.remove('talking'); statusEl.innerText="Sun rahe ho..."; beep(400,0.2);}
-talkBtn.addEventListener('pointerdown',startTalk);
-talkBtn.addEventListener('pointerup',stopTalk);
-talkBtn.addEventListener('pointerleave',stopTalk);
-talkBtn.addEventListener('pointercancel',stopTalk);
+let talking=false, isLocked=false; let startX=0, startY=0;
+function startTalk(e){ if(e) e.preventDefault(); if(!localStream || talkBtn.disabled) return; if(isLocked){ stopTalk(); return; } if(talking) return; talking=true; if(e && e.clientX){ startX=e.clientX; startY=e.clientY; } else if(e && e.touches && e.touches[0]){ startX=e.touches[0].clientX; startY=e.touches[0].clientY; } if(audioCtx&&audioCtx.state==='suspended')audioCtx.resume(); remoteAudio.play().catch(()=>{}); localStream.getAudioTracks()[0].enabled=true; talkBtn.classList.add('talking'); statusEl.innerText="Bol rahe ho..."; hintEl.innerText="Up swipe = Lock, Right swipe = Cancel"; actionRow.style.display='flex'; beep(800,0.12); }
+function stopTalk(e){ if(e) e.preventDefault(); if(!talking || isLocked){ if(isLocked){ isLocked=false; talking=false; localStream.getAudioTracks()[0].enabled=false; talkBtn.classList.remove('talking','locked'); lockBtn.classList.remove('locked'); statusEl.innerText="Sun rahe ho..."; hintEl.innerText=""; actionRow.style.display='none'; talkBtn.innerText="HOLD TO TALK"; beep(400,0.2); } return; } talking=false; localStream.getAudioTracks()[0].enabled=false; talkBtn.classList.remove('talking'); statusEl.innerText="Sun rahe ho..."; hintEl.innerText=""; actionRow.style.display='none'; beep(400,0.2); }
+function lockRecording(){ if(!talking) return; isLocked=true; talkBtn.classList.add('locked'); lockBtn.classList.add('locked'); talkBtn.innerText="TAP TO STOP"; statusEl.innerText="Locked! Ab bina dabaye bol sakte ho"; hintEl.innerText="Band karne ke liye fir se HOLD button dabao"; beep(1200,0.15); if(navigator.vibrate) navigator.vibrate(100); }
+function cancelRecording(){ if(!talking) return; talking=false; isLocked=false; localStream.getAudioTracks()[0].enabled=false; talkBtn.classList.remove('talking','locked'); lockBtn.classList.remove('locked'); statusEl.innerText="Cancelled"; hintEl.innerText=""; actionRow.style.display='none'; talkBtn.innerText="HOLD TO TALK"; beep(200,0.3); if(navigator.vibrate) navigator.vibrate([50,50,100]); }
+function handleMove(e){ if(!talking || isLocked) return; let curX, curY; if(e.clientX){ curX=e.clientX; curY=e.clientY; } else if(e.touches && e.touches[0]){ curX=e.touches[0].clientX; curY=e.touches[0].clientY; } else return; let diffX = curX - startX; let diffY = startY - curY; if(diffY > 80){ lockRecording(); } else if(diffX > 80){ cancelRecording(); } }
+talkBtn.addEventListener('pointerdown',startTalk); talkBtn.addEventListener('pointerup',stopTalk); talkBtn.addEventListener('pointerleave',(e)=>{ if(!isLocked) stopTalk(e); }); talkBtn.addEventListener('pointercancel',(e)=>{ if(!isLocked) stopTalk(e); }); talkBtn.addEventListener('pointermove', handleMove);
+lockBtn.addEventListener('click', lockRecording); cancelBtn.addEventListener('click', cancelRecording);
 joinBtn.addEventListener('click', async()=>{ joinBtn.style.display='none'; talkBtn.style.display='block'; await init(); });
 if('serviceWorker' in navigator){navigator.serviceWorker.register('./sw.js');}
 </script>
